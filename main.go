@@ -200,20 +200,17 @@ func (h *dnsStream) run(nomalpack chan gopacket.Packet) {
 		nread, err := io.ReadFull(&h.r, len_buf)
 		fmt.Printf("Read %d bytes\n", nread)
 		if nread < 2 || err != nil {
-			err = nil
-			fmt.Printf("error in reading first two bytes")
-			continue //not sure
 			// needs error handle there
+			fmt.Printf("error in reading first two bytes: %s", err)
+			break
 		}
 		msg_len := len_buf[0]<<8 | len_buf[1]
 		fmt.Printf("msg_len:%d\n", msg_len)
 		msg_buf := make([]byte, msg_len, msg_len)
 		nread, err = io.ReadFull(&h.r, msg_buf)
 		if err != nil {
-			err = nil
-			fmt.Printf("error in reading full tcp data")
-			continue //not sure
-			// needs error handle there
+			fmt.Printf("error in reading full tcp data: %s", err)
+			break
 		}
 		h.creatPacket(msg_buf, nomalpack)
 	}
