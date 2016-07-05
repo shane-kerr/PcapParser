@@ -57,11 +57,15 @@ func writeData(w *pcapgo.Writer, source *gopacket.PacketSource) error {
 
 }*/
 func readSource(source *gopacket.PacketSource, tcpPack chan gopacket.Packet,
-	normalPack chan gopacket.Packet, fragV4Pack chan gopacket.Packet) {
+	normalPack chan gopacket.Packet, fragV4Pack chan gopacket.Packet,
+	endNotification chan bool) {
 	for packet := range source.Packets() {
+		fmt.Printf("read packet in readSource()\n")
 		tcpLayer := packet.Layer(layers.LayerTypeTCP)
 		if tcpLayer != nil {
+			fmt.Printf("sending TCP packet\n")
 			tcpPack <- packet
+			fmt.Printf("done sending TCP packet\n")
 			// send packet to tcp ASSEMBLER
 		} else {
 			v6Layer := packet.Layer(layers.LayerTypeIPv6)
@@ -77,9 +81,13 @@ func readSource(source *gopacket.PacketSource, tcpPack chan gopacket.Packet,
 				df := gopacket.NilDecodeFeedback
 				ip.DecodeFromBytes(ipData, df)
 				if notFraV4(ip) {
+					fmt.Printf("sending normal packet\n")
 					normalPack <- packet
+					fmt.Printf("done sending normal packet\n")
 				} else {
+					fmt.Printf("sending fragmented packet\n")
 					fragV4Pack <- packet
+					fmt.Printf("done sending fragmented packet\n")
 				}
 				/*
 					in, err := defragger.DefragIPv4(v4Layer)
@@ -101,6 +109,8 @@ func readSource(source *gopacket.PacketSource, tcpPack chan gopacket.Packet,
 		}
 
 	}
+	fmt.Printf("done reading in readSource()\n")
+	endNotification <- true
 
 }
 func pcapWrite(w *pcapgo.Writer, pack chan gopacket.Packet) error {
@@ -155,9 +165,10 @@ func notFraV4(ip layers.IPv4) bool {
 	return false
 }
 func tcpAssemble(tcpPack chan gopacket.Packet, assembler *tcpassembly.Assembler) {
-	packet := <-tcpPack
-	tcp := packet.TransportLayer().(*layers.TCP)
-	assembler.AssembleWithTimestamp(packet.NetworkLayer().NetworkFlow(), tcp, packet.Metadata().Timestamp)
+	for packet := range tcpPack {
+		tcp := packet.TransportLayer().(*layers.TCP)
+		assembler.AssembleWithTimestamp(packet.NetworkLayer().NetworkFlow(), tcp, packet.Metadata().Timestamp)
+	}
 }
 
 type DNSStreamFactory struct {
@@ -182,9 +193,12 @@ func (h *DNSStreamFactory) New(net, transport gopacket.Flow) tcpassembly.Stream 
 }
 
 func (h *dnsStream) run(nomalpack chan gopacket.Packet) {
+	fmt.Printf("reading rebuilt TCP stream\n")
 	for {
 		len_buf := make([]byte, 2, 2)
+		fmt.Printf("about to read\n")
 		nread, err := io.ReadFull(&h.r, len_buf)
+		fmt.Printf("Read %d bytes\n", nread)
 		if nread < 2 || err != nil {
 			err = nil
 			fmt.Printf("error in reading first two bytes")
@@ -192,6 +206,7 @@ func (h *dnsStream) run(nomalpack chan gopacket.Packet) {
 			// needs error handle there
 		}
 		msg_len := len_buf[0]<<8 | len_buf[1]
+		fmt.Printf("msg_len:%d\n", msg_len)
 		msg_buf := make([]byte, msg_len, msg_len)
 		nread, err = io.ReadFull(&h.r, msg_buf)
 		if err != nil {
@@ -322,7 +337,8 @@ func main() {
 	tcpPack := make(chan gopacket.Packet, 5) // maybe need change buffersize for chan
 	nomalPack := make(chan gopacket.Packet, 5)
 	fragV4Pack := make(chan gopacket.Packet, 5)
-	go readSource(packetSource, tcpPack, nomalPack, fragV4Pack)
+	endNotification := make(chan bool)
+	go readSource(packetSource, tcpPack, nomalPack, fragV4Pack, endNotification)
 	go v4Defrag(fragV4Pack, nomalPack)
 	go pcapWrite(w, nomalPack)
 	streamFactory := &DNSStreamFactory{normal: nomalPack}
@@ -330,4 +346,6 @@ func main() {
 	assembler := tcpassembly.NewAssembler(streamPool)
 	go tcpAssemble(tcpPack, assembler)
 
+	// wait for the reading to finish
+	<-endNotification
 }
