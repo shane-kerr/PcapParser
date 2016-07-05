@@ -59,13 +59,15 @@ func writeData(w *pcapgo.Writer, source *gopacket.PacketSource) error {
 func readSource(source *gopacket.PacketSource, tcpPack chan gopacket.Packet,
 	normalPack chan gopacket.Packet, fragV4Pack chan gopacket.Packet,
 	endNotification chan bool) {
+	n := 0
 	for packet := range source.Packets() {
 		fmt.Printf("read packet in readSource()\n")
 		tcpLayer := packet.Layer(layers.LayerTypeTCP)
 		if tcpLayer != nil {
 			fmt.Printf("sending TCP packet\n")
 			tcpPack <- packet
-			fmt.Printf("done sending TCP packet\n")
+			fmt.Printf("done sending TCP packet (%d)\n", n)
+			n++
 			// send packet to tcp ASSEMBLER
 		} else {
 			v6Layer := packet.Layer(layers.LayerTypeIPv6)
@@ -165,10 +167,14 @@ func notFraV4(ip layers.IPv4) bool {
 	return false
 }
 func tcpAssemble(tcpPack chan gopacket.Packet, assembler *tcpassembly.Assembler) {
+	n := 0
 	for packet := range tcpPack {
+		fmt.Printf("Adding TCP to assembler (%d)\n", n)
+		n++
 		tcp := packet.TransportLayer().(*layers.TCP)
 		assembler.AssembleWithTimestamp(packet.NetworkLayer().NetworkFlow(), tcp, packet.Metadata().Timestamp)
 	}
+	fmt.Printf("tcpAssemble() leaving!\n")
 }
 
 type DNSStreamFactory struct {
@@ -192,26 +198,32 @@ func (h *DNSStreamFactory) New(net, transport gopacket.Flow) tcpassembly.Stream 
 	return &hstream.r
 }
 
+var stream_id int
+
 func (h *dnsStream) run(nomalpack chan gopacket.Packet) {
 	fmt.Printf("reading rebuilt TCP stream\n")
+	// race condition here, only for debugging!
+	my_id := stream_id
+	stream_id++
 	for {
 		len_buf := make([]byte, 2, 2)
-		fmt.Printf("about to read\n")
+		fmt.Printf("about to read [%d]\n", my_id)
 		nread, err := io.ReadFull(&h.r, len_buf)
-		fmt.Printf("Read %d bytes\n", nread)
+		fmt.Printf("Read %d bytes [%d]\n", nread, my_id)
 		if nread < 2 || err != nil {
 			// needs error handle there
-			fmt.Printf("error in reading first two bytes: %s", err)
+			fmt.Printf("error in reading first two bytes: %s\n", err)
 			break
 		}
-		msg_len := len_buf[0]<<8 | len_buf[1]
-		fmt.Printf("msg_len:%d\n", msg_len)
+		msg_len := uint(len_buf[0])<<8 | uint(len_buf[1])
+		fmt.Printf("msg_len:%d [%d]\n", msg_len, my_id)
 		msg_buf := make([]byte, msg_len, msg_len)
 		nread, err = io.ReadFull(&h.r, msg_buf)
 		if err != nil {
-			fmt.Printf("error in reading full tcp data: %s", err)
+			fmt.Printf("error in reading full tcp data: %s\n", err)
 			break
 		}
+		fmt.Printf("Read %d bytes [%d]\n", nread, my_id)
 		h.creatPacket(msg_buf, nomalpack)
 	}
 }
