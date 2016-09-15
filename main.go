@@ -379,10 +379,15 @@ func main() {
 	}
 	defer handle.Close()
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-	//need to add tcp assemble and udp defrag here.
-	Output, err := os.Create(FilePathOutput)
-	if err != nil {
-		panic(err)
+
+	var Output *os.File
+	if FilePathOutput == "-" {
+		Output = os.Stdout
+	} else {
+		Output, err = os.Create(FilePathOutput)
+		if err != nil {
+			panic(err)
+		}
 	}
 	w := pcapgo.NewWriter(Output)
 	w.WriteFileHeader(65536, layers.LinkTypeRaw)
