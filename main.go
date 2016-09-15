@@ -9,10 +9,11 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/ip4defrag"
 	"github.com/google/gopacket/layers"
-	"github.com/google/gopacket/pcap"
+	//	"github.com/google/gopacket/pcap"
 	"github.com/google/gopacket/pcapgo"
 	"github.com/google/gopacket/tcpassembly"
 	"github.com/google/gopacket/tcpassembly/tcpreader"
+	"github.com/shane-kerr/gopacket/pcap"
 	"io"
 	"os"
 )
@@ -355,6 +356,7 @@ func (h *dnsStream) createPacket(msg_buf []byte, normalPack chan gopacket.Packet
 		return //unknown network just return?
 	}
 }
+
 func main() {
 	var FilePathInput string
 	var FilePathOutput string
@@ -365,7 +367,13 @@ func main() {
 		flag.PrintDefaults()
 		return
 	}
-	handle, err := pcap.OpenOffline(FilePathInput)
+	var handle *pcap.Handle
+	var err error
+	if FilePathInput == "-" {
+		handle, err = pcap.OpenStdinOffline()
+	} else {
+		handle, err = pcap.OpenOffline(FilePathInput)
+	}
 	if err != nil {
 		panic(err)
 	}
@@ -373,6 +381,9 @@ func main() {
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 	//need to add tcp assemble and udp defrag here.
 	Output, err := os.Create(FilePathOutput)
+	if err != nil {
+		panic(err)
+	}
 	w := pcapgo.NewWriter(Output)
 	w.WriteFileHeader(65536, layers.LinkTypeRaw)
 	defer Output.Close()
