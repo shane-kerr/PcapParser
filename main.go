@@ -370,7 +370,7 @@ func main() {
 	var handle *pcap.Handle
 	var err error
 	if FilePathInput == "-" {
-		handle, err = pcap.OpenStdinOffline()
+		handle, err = pcap.FOpenOffline(os.Stdin)
 	} else {
 		handle, err = pcap.OpenOffline(FilePathInput)
 	}
